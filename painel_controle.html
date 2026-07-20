@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBS Controller - Bento Box</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+    <!-- OBS WebSocket JS -->
+    <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.5/dist/obs-ws.min.js"></script>
+    <!-- Fontes -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #09090b; 
+        }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
+    </style>
+</head>
+<body x-data="controlPanelApp()" x-init="init()" class="text-zinc-100 min-h-screen flex flex-col p-4 md:p-8 selection:bg-zinc-800 selection:text-white">
+    <!-- HTTPS Warning Banner -->
+    <div x-show="showHttpsWarning" class="max-w-6xl mx-auto w-full mb-4 bg-amber-950/40 border border-amber-800/60 p-3.5 rounded-xl text-amber-200 text-xs flex items-center justify-between shadow-lg">
+        <div class="flex items-center gap-2">
+            <span class="text-sm">⚠️</span>
+            <p><strong>Aviso de Segurança:</strong> Você abriu o painel via HTTPS. O navegador impedirá a conexão local com o OBS (IP local) por segurança. Por favor, acesse a versão <strong>HTTP</strong> do site ou configure o OBS com uma conexão criptografada (WSS).</p>
+        </div>
+        <button @click="showHttpsWarning = false" class="text-amber-400 hover:text-amber-200 font-bold ml-2">Fechar</button>
+    </div>
+
+    <div class="max-w-6xl mx-auto w-full mb-4 mt-2">
+        <h1 class="text-white text-5xl font-['Space_Grotesk'] font-bold tracking-tighter lowercase">obs.desk</h1>
+    </div>
+
+    <div class="max-w-6xl mx-auto w-full grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6 items-start">
+        
+        <!-- COLUNA ESQUERDA -->
+        <div class="col-span-1 md:col-span-8 flex flex-col gap-4 md:gap-6">
+            
+            <!-- BENTO BOX 1: OBS PREVIEW & CONECTIVIDADE & TIMERS -->
+            <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 md:p-6 flex flex-col gap-4 transition-all duration-300 hover:border-zinc-700/80 shadow-xl">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs uppercase tracking-widest text-white font-bold font-['Space_Grotesk']">PRINCIPAL</span>
+                    <!-- OBS Stats Monitor -->
+                    <div x-show="connected && obsStats" class="flex gap-3 text-[9px] text-zinc-500 font-mono">
+                        <span>CPU: <strong class="text-zinc-300" x-text="obsStats.cpuUsage.toFixed(1) + '%'"></strong></span>
+                        <span>FPS: <strong class="text-zinc-300" x-text="obsStats.fps.toFixed(0)"></strong></span>
+                        <span>DISCO: <strong class="text-zinc-300" x-text="obsStats.freeDiskSpace.toFixed(0) + 'GB'"></strong></span>
+                    </div>
+                </div>
+                
+                <div class="flex flex-col md:flex-row gap-6">
+                    <!-- OBS PREVIEW IMAGE -->
+                    <div class="w-full md:w-1/2 flex flex-col gap-2">
+                    <div class="relative aspect-video rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 shadow-inner group flex items-center justify-center">
+                        <img :src="previewImage" x-show="previewImage && connected" alt="OBS Preview" class="w-full h-full object-contain opacity-90 transition-opacity duration-300 group-hover:opacity-100">
+                        <div x-show="!previewImage || !connected" class="text-zinc-600 text-xs tracking-widest font-bold">SEM SINAL</div>
+
+                        <!-- Status Badge -->
+                        <div class="absolute top-3 left-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 px-2 py-1 rounded text-[10px] tracking-wider text-zinc-400 uppercase font-medium flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full" :class="(isStreaming || isRecording) ? 'bg-rose-500 animate-pulse' : (connected ? 'bg-emerald-500' : 'bg-rose-500')"></span>
+                            <span x-text="(isStreaming || isRecording) ? 'AO VIVO' : (connected ? 'Conectado' : 'Desconectado')"></span>
+                        </div>
+
+                        <!-- Seletor de Qualidade do Preview -->
+                        <div x-show="connected" class="absolute bottom-3 right-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded px-1.5 py-0.5 text-[9px] text-zinc-500 font-medium flex gap-1 items-center transition opacity-60 hover:opacity-100">
+                            <span class="text-[8px] uppercase tracking-wider text-zinc-600 mr-0.5 font-bold font-['Space_Grotesk']">Qualidade:</span>
+                            <button @click="previewQuality = 'leve'" class="hover:text-white transition px-1.5 rounded font-bold" :class="previewQuality === 'leve' ? 'text-zinc-100 bg-zinc-800' : 'text-zinc-500'">Leve</button>
+                            <button @click="previewQuality = 'nitido'" class="hover:text-white transition px-1.5 rounded font-bold" :class="previewQuality === 'nitido' ? 'text-zinc-100 bg-zinc-800' : 'text-zinc-500'">Nítido</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLES DO OBS & TIMERS -->
+                <div class="w-full md:w-1/2 flex flex-col justify-between gap-4">
+                    
+                    <div class="flex flex-col gap-1.5">
+                        <label class="text-xs uppercase tracking-widest text-zinc-500 font-bold font-['Space_Grotesk'] flex items-center justify-between">
+                            <span>Conexão OBS WebSocket</span>
+                            <span x-show="isReconnecting" class="text-[9px] text-amber-400 animate-pulse font-sans">Tentando reconectar...</span>
+                        </label>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input x-model="obsIp" type="text" class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 transition" placeholder="IP (ex: 127.0.0.1)">
+                            <input x-model="obsPort" type="text" class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 transition" placeholder="Porta (ex: 4455)">
+                            <input x-model="obsPassword" type="password" class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 transition" placeholder="Senha do WebSocket">
+                        </div>
+                        <button @click="connectOBS()" class="text-xs font-semibold py-2 mt-1 rounded-lg transition active:scale-95 duration-200"
+                                :class="connected ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : (isReconnecting ? 'bg-amber-950 text-amber-300 border border-amber-800 animate-pulse' : 'bg-zinc-100 text-zinc-950 hover:bg-white')"
+                                x-text="connected ? 'DESCONECTAR' : (isReconnecting ? 'RECONECTANDO...' : 'CONECTAR')"></button>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-zinc-950/50 border border-zinc-800/60 rounded-xl p-3 flex flex-col">
+                            <span class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1">Tempo Gravação</span>
+                            <span class="text-lg font-mono font-medium text-zinc-300" x-text="connected ? recordTimecode : '00:00:00'"></span>
+                        </div>
+                        <div class="bg-zinc-950/50 border border-zinc-800/60 rounded-xl p-3 flex flex-col">
+                            <span class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1">Tempo Transmissão</span>
+                            <span class="text-lg font-mono font-medium text-zinc-300" x-text="connected ? streamTimecode : '00:00:00'"></span>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button @click="toggleStream()" class="flex-1 border py-3 rounded-xl flex items-center justify-center transition active:scale-[0.98] group relative" title="Iniciar Transmissão"
+                                :class="isStreaming ? 'bg-emerald-950/20 border-emerald-700' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'">
+                            <svg x-show="isStreaming" class="w-4 h-4 transition text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+                                <rect x="6" y="6" width="12" height="12"/>
+                            </svg>
+                            <svg x-show="!isStreaming" class="w-4 h-4 transition text-zinc-400 group-hover:text-zinc-100" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <span class="absolute -top-8 bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap">Transmissão</span>
+                        </button>
+
+                        <button @click="toggleRecord()" class="flex-1 border py-3 rounded-xl flex items-center justify-center transition active:scale-[0.98] group relative" title="Iniciar Gravação"
+                                :class="isRecording ? 'bg-rose-950/20 border-rose-700' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'">
+                            <svg x-show="isRecording" class="w-4 h-4 transition text-rose-500" fill="currentColor" viewBox="0 0 24 24">
+                                <rect x="6" y="6" width="12" height="12"/>
+                            </svg>
+                            <svg x-show="!isRecording" class="w-4 h-4 transition text-rose-500/80 group-hover:text-rose-400" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="8"/>
+                            </svg>
+                            <span class="absolute -top-8 bg-zinc-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap">Gravação</span>
+                        </button>
+                    </div>
+
+                    <!-- Audio Controls (Movidos para cá) -->
+                    <div class="flex flex-col gap-3 mt-1 bg-zinc-950/40 p-3 rounded-xl border border-zinc-800/60">
+                        <span class="text-xs uppercase tracking-widest text-zinc-500 font-bold font-['Space_Grotesk']">Controles de Áudio</span>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between items-center text-xs">
+                                <input type="text" x-model="audioSourceName" class="bg-transparent border-none text-zinc-400 font-medium focus:outline-none w-24" placeholder="Mic/Aux" @blur="fetchAudioStatus()">
+                                <span class="text-zinc-500 font-mono" x-text="Math.round(audioVolume * 100) + '%'"></span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button @click="toggleMute()" class="transition" :class="isMuted ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'">
+                                    <svg x-show="isMuted" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2 M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                                    </svg>
+                                    <svg x-show="!isMuted" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                                    </svg>
+                                </button>
+                                <input type="range" min="0" max="1" step="0.01" x-model="audioVolume" @input="updateVolume()" class="w-full accent-zinc-200 h-1 bg-zinc-800 rounded-lg cursor-pointer transition">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            </div>
+
+            <!-- BENTO BOX 2: CENA SELECTOR -->
+            <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 md:p-5 transition-all duration-300 hover:border-zinc-700/80 shadow-xl" x-show="scenes.length > 0">
+                <div class="flex flex-col gap-3">
+                    <span class="text-xs uppercase tracking-widest text-white font-bold font-['Space_Grotesk']">Cenas do OBS</span>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                        <template x-for="scene in scenes" :key="scene">
+                            <button @click="changeScene(scene)" 
+                                    class="py-2.5 px-3 rounded-xl text-xs tracking-wide transition active:scale-95 duration-150 truncate"
+                                    :class="currentScene === scene ? 'bg-zinc-100 text-zinc-950 border border-transparent font-semibold' : 'bg-zinc-950/40 border border-zinc-800 text-zinc-400 hover:text-zinc-200 font-medium'"
+                                    x-text="scene"></button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BENTO BOX 3: GESTÃO DE LOWER THIRD -->
+            <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 md:p-6 transition-all duration-300 hover:border-zinc-700/80 shadow-xl">
+                <div class="flex flex-col gap-4">
+                    
+                    <div class="flex justify-between items-center pb-2 border-b border-zinc-800/80">
+                        <span class="text-xs uppercase tracking-widest text-white font-bold font-['Space_Grotesk']">GESTAO DE LTs</span>
+                        <div class="flex gap-2">
+                            <label class="cursor-pointer bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 text-[10px] font-medium tracking-wide px-3 py-1 rounded transition flex items-center justify-center">
+                                IMPORTAR
+                                <input type="file" accept=".json" class="hidden" @change="loadJSON($event)" x-ref="fileInput">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[140px] overflow-y-auto pr-1">
+                            <template x-for="(speaker, index) in speakers" :key="index">
+                                <button @click="selectedSpeakerIndex = index; applySelectedSpeaker()" 
+                                        class="py-2 px-3 rounded-lg text-xs transition duration-150 text-left truncate flex items-center justify-between"
+                                        :class="liveSpeakerIndex === index ? 'bg-rose-950/40 border border-rose-800/60 text-rose-400 font-bold shadow-inner' : (selectedSpeakerIndex === index ? 'bg-zinc-800/80 border border-zinc-600 text-zinc-100 font-medium' : 'bg-zinc-950/40 hover:bg-zinc-800/50 border border-zinc-800 hover:border-zinc-700/80 text-zinc-400 hover:text-zinc-200')">
+                                    <span x-text="speaker.name" class="block truncate"></span>
+                                    <span x-show="liveSpeakerIndex === index" class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0 ml-2"></span>
+                                </button>
+                            </template>
+                            <div x-show="speakers.length === 0" class="col-span-full py-6 text-center border border-dashed border-zinc-800 rounded-xl">
+                                <p class="text-xs text-zinc-600">Nenhum palestrante importado. Clique em IMPORTAR para enviar seu JSON.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-2 bg-zinc-950/60 border border-zinc-800/60 p-3 rounded-xl transition-all duration-300 min-h-[56px] flex flex-col justify-center">
+                        <span class="text-[10px] uppercase tracking-widest text-zinc-600 font-bold mb-1">Preview</span>
+                        <div x-show="name" class="flex flex-col">
+                            <p class="text-xs font-semibold text-zinc-100" x-text="name"></p>
+                            <p class="text-[10px] text-zinc-500" x-text="role"></p>
+                        </div>
+                        <div x-show="!name" class="text-[10px] text-zinc-600 italic">
+                            Nenhum palestrante selecionado
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="flex flex-col gap-1">
+                            <span class="text-[10px] uppercase tracking-widest text-zinc-600 font-bold">Canal do Overlay</span>
+                            <input x-model="liveChannel" maxlength="40" type="text" class="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 transition font-mono" placeholder="principal">
+                        </label>
+                        <div class="flex items-end">
+                            <p class="text-[10px] text-zinc-600 leading-relaxed">Use o mesmo canal presente na URL da fonte do OBS. Se não houver canal na URL, use <strong>principal</strong>.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3 mt-2">
+                        <button @click="sendGC('SHOW')" :disabled="!connected || !name" class="bg-emerald-200 hover:bg-emerald-100 text-emerald-950 font-semibold text-xs tracking-wider py-4 rounded-xl shadow-lg active:scale-95 transition-all duration-200 flex flex-col items-center justify-center gap-1 disabled:opacity-50">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+                            </svg>
+                            ENVIAR LT
+                        </button>
+
+                        <button @click="sendGC('HIDE')" :disabled="!connected || liveSpeakerIndex === null" class="bg-rose-200 hover:bg-rose-100 text-rose-950 font-semibold text-xs tracking-wider py-4 rounded-xl shadow-lg active:scale-95 transition-all duration-200 flex flex-col items-center justify-center gap-1 disabled:opacity-50">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                            PARAR LT
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- COLUNA DIREITA -->
+        <div class="col-span-1 md:col-span-4 flex flex-col gap-6">
+            
+            <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 md:p-6 transition-all duration-300 hover:border-zinc-700/80 shadow-xl h-full flex flex-col max-h-[800px]">
+                <span class="text-xs uppercase tracking-widest text-white font-bold mb-4 font-['Space_Grotesk']">Fontes da Cena Atual</span>
+                
+                <div class="flex-1 overflow-y-auto pr-1 flex flex-col gap-2">
+                    <template x-for="item in currentSceneItems" :key="item.sceneItemId">
+                        <div class="flex items-center justify-between p-3 rounded-xl border transition-all"
+                             :class="item.sceneItemEnabled ? 'bg-zinc-800/80 border-zinc-700' : 'bg-zinc-950/40 border-zinc-800/60'">
+                            <span class="text-xs font-medium truncate pr-2" :class="item.sceneItemEnabled ? 'text-zinc-200' : 'text-zinc-500'" x-text="item.sourceName"></span>
+                            <button @click="toggleSceneItem(item)" 
+                                    class="p-1.5 rounded-lg transition"
+                                    :class="item.sceneItemEnabled ? 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600' : 'bg-zinc-900 text-zinc-600 hover:text-zinc-400'">
+                                <svg x-show="item.sceneItemEnabled" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                                <svg x-show="!item.sceneItemEnabled" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                                </svg>
+                            </button>
+                        </div>
+                    </template>
+                    <div x-show="currentSceneItems.length === 0" class="py-6 text-center text-xs text-zinc-600 italic">
+                        Nenhuma fonte encontrada.
+                    </div>
+                </div>
+            </div>
+
+            <!-- BENTO BOX 5: ATALHOS DE TECLADO -->
+            <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 md:p-6 transition-all duration-300 hover:border-zinc-700/80 shadow-xl flex flex-col mt-4">
+                <span class="text-xs uppercase tracking-widest text-white font-bold mb-3 font-['Space_Grotesk']">Atalhos de Teclado</span>
+                <p class="text-[10px] text-zinc-500 mb-4 font-medium">Clique no atalho para redefinir. Pressione qualquer tecla física enquanto estiver piscando.</p>
+                <div class="flex flex-col gap-2">
+                    <template x-for="(key, action) in hotkeys" :key="action">
+                        <div class="flex items-center justify-between py-1.5 border-b border-zinc-800/40">
+                            <span class="text-xs text-zinc-400 font-medium" x-text="getHotkeyLabel(action)"></span>
+                            <button @click="recordHotkey(action)" 
+                                    class="text-[10px] font-mono font-bold px-2 py-1 rounded border transition"
+                                    :class="recordingHotkeyAction === action ? 'bg-amber-950/40 border-amber-500 text-amber-400 animate-pulse' : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-700'"
+                                    x-text="recordingHotkeyAction === action ? 'Pressione...' : formatKeyLabel(key)"></button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+        <template x-for="toast in toasts" :key="toast.id">
+            <div class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs shadow-2xl transition duration-300 ease-out transform bg-zinc-900 border-zinc-800 text-white"
+                 :class="{'border-emerald-800/80 text-emerald-300': toast.type === 'success', 'border-rose-800/80 text-rose-300': toast.type === 'error', 'border-amber-800/80 text-amber-300': toast.type === 'warning'}">
+                <span class="font-bold" x-text="toast.type === 'success' ? '✓' : (toast.type === 'error' ? '✕' : 'ℹ️')"></span> 
+                <span x-text="toast.message"></span>
+            </div>
+        </template>
+    </div>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('controlPanelApp', () => ({
+                obs: new OBSWebSocket(),
+                connected: false,
+                obsIp: '127.0.0.1',
+                obsPort: '4455',
+                obsPassword: '',
+                showHttpsWarning: false,
+                shouldReconnect: false,
+                reconnectInterval: null,
+                isReconnecting: false,
+                
+                // Dados Cenas & Monitor
+                scenes: [],
+                currentScene: '',
+                currentSceneItems: [],
+                previewImage: null,
+                previewInterval: null,
+                previewQuality: 'leve',
+                previewBusy: false,
+                
+                obsStats: null,
+                statsInterval: null,
+
+                hotkeys: {
+                    sendLT: 'Enter',
+                    hideLT: 'Escape',
+                    toggleMute: 'KeyM',
+                    toggleStream: 'KeyS',
+                    toggleRecord: 'KeyR'
+                },
+                recordingHotkeyAction: null,
+                
+                // Gravação e Stream
+                isStreaming: false,
+                isRecording: false,
+                streamTimecode: '00:00:00',
+                recordTimecode: '00:00:00',
+                
+                // GC / Lower Third
+                speakers: [],
+                selectedSpeakerIndex: null,
+                liveSpeakerIndex: null,
+                name: '',
+                role: '',
+                projectSettings: null,
+                liveChannel: 'principal',
+                gcVisible: false, // Controla o overlay do preview
+                
+                // Audio
+                audioSourceName: 'Mic/Aux',
+                audioVolume: 0.82,
+                isMuted: false,
+                
+                toasts: [],
+                
+                init() {
+                    // Detecta protocolo HTTPS
+                    this.showHttpsWarning = window.location.protocol === 'https:';
+                    
+                    // Carrega do localStorage se houver
+                    if (localStorage.getItem('obs_ip')) this.obsIp = localStorage.getItem('obs_ip');
+                    if (localStorage.getItem('obs_port')) this.obsPort = localStorage.getItem('obs_port');
+                    if (localStorage.getItem('obs_password')) this.obsPassword = localStorage.getItem('obs_password');
+                    if (localStorage.getItem('obs_audio_source')) this.audioSourceName = localStorage.getItem('obs_audio_source');
+                    if (localStorage.getItem('lt_obs_channel')) this.liveChannel = localStorage.getItem('lt_obs_channel');
+                    if (localStorage.getItem('obs_preview_quality')) {
+                        const savedQuality = localStorage.getItem('obs_preview_quality');
+                        this.previewQuality = savedQuality === 'alta' || savedQuality === 'media' || savedQuality === 'nitido' ? 'nitido' : 'leve';
+                    }
+                    
+                    if (localStorage.getItem('obs_speakers')) {
+                        try {
+                            this.speakers = JSON.parse(localStorage.getItem('obs_speakers'));
+                        } catch(e) {}
+                    }
+                    
+                    if (localStorage.getItem('obs_hotkeys')) {
+                        try {
+                            this.hotkeys = JSON.parse(localStorage.getItem('obs_hotkeys'));
+                        } catch(e) {}
+                    }
+                    
+                    // Salva automaticamente configurações ao mudar
+                    this.$watch('audioSourceName', val => localStorage.setItem('obs_audio_source', val));
+                    this.$watch('liveChannel', val => localStorage.setItem('lt_obs_channel', String(val || 'principal').trim().slice(0, 40) || 'principal'));
+                    this.$watch('previewQuality', val => {
+                        localStorage.setItem('obs_preview_quality', val);
+                        this.restartPreviewLoop();
+                    });
+
+                    // Registrar escuta global de atalhos
+                    window.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
+                },
+                
+                async connectOBS() {
+                    if (this.connected) {
+                        this.shouldReconnect = false;
+                        if (this.reconnectInterval) {
+                            clearInterval(this.reconnectInterval);
+                            this.reconnectInterval = null;
+                        }
+                        if (this.statsInterval) {
+                            clearInterval(this.statsInterval);
+                            this.statsInterval = null;
+                        }
+                        this.isReconnecting = false;
+                        this.obsStats = null;
+                        await this.obs.disconnect();
+                        this.connected = false;
+                        if (this.previewInterval) clearInterval(this.previewInterval);
+                        this.previewImage = null;
+                        this.showToast('Desconectado do OBS', 'info');
+                        return;
+                    }
+
+                    try {
+                        this.shouldReconnect = true;
+                        
+                        // Decide o protocolo correto
+                        let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                        let connectionUrl = this.obsIp.includes('://') ? this.obsIp : `${protocol}${this.obsIp}:${this.obsPort}`;
+                        
+                        await this.obs.connect(connectionUrl, this.obsPassword);
+                        this.connected = true;
+                        this.isReconnecting = false;
+                        if (this.reconnectInterval) {
+                            clearInterval(this.reconnectInterval);
+                            this.reconnectInterval = null;
+                        }
+                        this.showToast('Conectado ao OBS com sucesso!', 'success');
+                        
+                        // Salva dados no localStorage
+                        localStorage.setItem('obs_ip', this.obsIp);
+                        localStorage.setItem('obs_port', this.obsPort);
+                        localStorage.setItem('obs_password', this.obsPassword);
+                        
+                        this.onConnectSuccess();
+                    } catch (error) {
+                        this.connected = false;
+                        this.showToast('Falha na conexão com OBS', 'error');
+                        if (this.shouldReconnect) {
+                            this.startAutoReconnect();
+                        }
+                    }
+                },
+                
+                async onConnectSuccess() {
+                    try {
+                        const { scenes, currentProgramSceneName } = await this.obs.call('GetSceneList');
+                        this.scenes = scenes.map(s => s.sceneName).reverse();
+                        this.currentScene = currentProgramSceneName;
+                        this.fetchSceneItems(this.currentScene);
+                    } catch(e) {}
+                    
+                    this.obs.on('CurrentProgramSceneChanged', (data) => {
+                        this.currentScene = data.sceneName;
+                        this.fetchSceneItems(data.sceneName);
+                    });
+
+                    // Sincronizar alterações de criação/remoção/renomeação de cenas
+                    const reloadScenes = async () => {
+                        try {
+                            const { scenes } = await this.obs.call('GetSceneList');
+                            this.scenes = scenes.map(s => s.sceneName).reverse();
+                        } catch(e) {}
+                    };
+                    this.obs.on('SceneCreated', reloadScenes);
+                    this.obs.on('SceneRemoved', reloadScenes);
+                    this.obs.on('SceneNameChanged', reloadScenes);
+
+                    this.obs.on('SceneItemEnableStateChanged', (data) => {
+                        if (data.sceneName === this.currentScene) {
+                            this.currentSceneItems = this.currentSceneItems.map(i => {
+                                if (i.sceneItemId == data.sceneItemId) {
+                                    i.sceneItemEnabled = data.sceneItemEnabled;
+                                }
+                                return i;
+                            });
+                        }
+                    });
+                    
+                    // Sincronizar alterações manuais de Áudio direto do OBS Studio
+                    this.obs.on('InputMuteStateChanged', (data) => {
+                        if (data.inputName === this.audioSourceName) {
+                            this.isMuted = data.inputMuted;
+                        }
+                    });
+                    this.obs.on('InputVolumeChanged', (data) => {
+                        if (data.inputName === this.audioSourceName) {
+                            this.audioVolume = data.inputVolumeMul;
+                        }
+                    });
+                    
+                    this.obs.on('ConnectionClosed', () => {
+                        this.connected = false;
+                        if (this.previewInterval) clearInterval(this.previewInterval);
+                        if (this.statsInterval) clearInterval(this.statsInterval);
+                        this.previewImage = null;
+                        this.obsStats = null;
+                        this.statsInterval = null;
+                        if (this.shouldReconnect) {
+                            this.startAutoReconnect();
+                        } else {
+                            this.showToast('Conexão encerrada com OBS', 'info');
+                        }
+                    });
+                    
+                    try {
+                        const streamStatus = await this.obs.call('GetStreamStatus');
+                        this.isStreaming = streamStatus.outputActive;
+                        const recordStatus = await this.obs.call('GetRecordStatus');
+                        this.isRecording = recordStatus.outputActive;
+                    } catch(e) {}
+                    
+                    this.obs.on('StreamStateChanged', (data) => {
+                        this.isStreaming = data.outputActive;
+                        if(!data.outputActive) this.streamTimecode = '00:00:00';
+                    });
+                    this.obs.on('RecordStateChanged', (data) => {
+                        this.isRecording = data.outputActive;
+                        if(!data.outputActive) this.recordTimecode = '00:00:00';
+                    });
+                    
+                    this.restartPreviewLoop();
+                    
+                    // Monitor de performance
+                    if (this.statsInterval) clearInterval(this.statsInterval);
+                    this.statsInterval = setInterval(() => this.fetchOBSStats(), 3000);
+                    this.fetchOBSStats();
+                    
+                    this.fetchAudioStatus();
+                },
+                
+                startAutoReconnect() {
+                    if (this.reconnectInterval) return;
+                    this.isReconnecting = true;
+                    this.showToast('Conexão perdida. Tentando reconectar...', 'warning');
+                    
+                    this.reconnectInterval = setInterval(async () => {
+                        if (this.connected) {
+                            clearInterval(this.reconnectInterval);
+                            this.reconnectInterval = null;
+                            this.isReconnecting = false;
+                            return;
+                        }
+                        
+                        try {
+                            let protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                            let connectionUrl = this.obsIp.includes('://') ? this.obsIp : `${protocol}${this.obsIp}:${this.obsPort}`;
+                            
+                            await this.obs.connect(connectionUrl, this.obsPassword);
+                            this.connected = true;
+                            this.isReconnecting = false;
+                            
+                            clearInterval(this.reconnectInterval);
+                            this.reconnectInterval = null;
+                            
+                            this.showToast('Reconectado com sucesso!', 'success');
+                            this.onConnectSuccess();
+                        } catch (e) {
+                            // Falha silenciosa para tentar no próximo ciclo de 5s
+                        }
+                    }, 5000);
+                },
+                
+                async fetchOBSStats() {
+                    if (!this.connected) return;
+                    try {
+                        const stats = await this.obs.call('GetStats');
+                        this.obsStats = {
+                            cpuUsage: stats.cpuUsage,
+                            fps: stats.activeFps,
+                            freeDiskSpace: stats.availableDiskSpace / 1024
+                        };
+                    } catch (e) {}
+                },
+                
+                getHotkeyLabel(action) {
+                    const labels = {
+                        sendLT: 'Enviar LT (Ao Vivo)',
+                        hideLT: 'Ocultar LT (Parar)',
+                        toggleMute: 'Mudo / Áudio',
+                        toggleStream: 'Iniciar/Parar Live',
+                        toggleRecord: 'Iniciar/Parar Gravação'
+                    };
+                    return labels[action] || action;
+                },
+                
+                formatKeyLabel(key) {
+                    if (!key) return 'Nenhum';
+                    return key
+                        .replace('Key', '')
+                        .replace('Digit', '')
+                        .replace('ArrowUp', 'Seta Cima')
+                        .replace('ArrowDown', 'Seta Baixo')
+                        .replace('ArrowLeft', 'Seta Esq')
+                        .replace('ArrowRight', 'Seta Dir')
+                        .replace('Escape', 'Esc')
+                        .replace('Space', 'Espaço');
+                },
+                
+                recordHotkey(action) {
+                    this.recordingHotkeyAction = action;
+                },
+                
+                handleGlobalKeyDown(e) {
+                    // Gravar atalho
+                    if (this.recordingHotkeyAction) {
+                        e.preventDefault();
+                        this.hotkeys[this.recordingHotkeyAction] = e.code;
+                        localStorage.setItem('obs_hotkeys', JSON.stringify(this.hotkeys));
+                        this.recordingHotkeyAction = null;
+                        this.showToast('Atalho atualizado!', 'success');
+                        return;
+                    }
+                    
+                    // Ignora atalhos ao escrever em inputs
+                    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+                        return;
+                    }
+                    
+                    if (e.code === this.hotkeys.sendLT) {
+                        e.preventDefault();
+                        this.sendGC('SHOW');
+                    } else if (e.code === this.hotkeys.hideLT) {
+                        e.preventDefault();
+                        this.sendGC('HIDE');
+                    } else if (e.code === this.hotkeys.toggleMute) {
+                        e.preventDefault();
+                        this.toggleMute();
+                    } else if (e.code === this.hotkeys.toggleStream) {
+                        e.preventDefault();
+                        this.toggleStream();
+                    } else if (e.code === this.hotkeys.toggleRecord) {
+                        e.preventDefault();
+                        this.toggleRecord();
+                    }
+                },
+                
+                async changeScene(sceneName) {
+                    if (!this.connected) return;
+                    try {
+                        await this.obs.call('SetCurrentProgramScene', { sceneName });
+                        this.fetchSceneItems(sceneName);
+                    } catch (error) {}
+                },
+                
+                async fetchSceneItems(sceneName) {
+                    if (!this.connected || !sceneName) return;
+                    try {
+                        const { sceneItems } = await this.obs.call('GetSceneItemList', { sceneName });
+                        // A API do OBS 5.0+ retorna os itens na ordem do bottom pro topo. Nós invertemos.
+                        this.currentSceneItems = sceneItems.reverse();
+                    } catch (e) {
+                        this.currentSceneItems = [];
+                    }
+                },
+                
+                async toggleSceneItem(item) {
+                    if (!this.connected) return;
+                    try {
+                        const targetState = !item.sceneItemEnabled;
+                        await this.obs.call('SetSceneItemEnabled', {
+                            sceneName: this.currentScene,
+                            sceneItemId: item.sceneItemId,
+                            sceneItemEnabled: targetState
+                        });
+                        
+                        this.currentSceneItems = this.currentSceneItems.map(i => {
+                            if (i.sceneItemId == item.sceneItemId) {
+                                i.sceneItemEnabled = targetState;
+                            }
+                            return i;
+                        });
+                    } catch (e) {
+                        this.showToast('Erro ao alternar fonte', 'error');
+                    }
+                },
+
+                getPreviewSettings() {
+                    if (this.previewQuality === 'nitido') {
+                        return { width: 640, height: 360, quality: 28, interval: 500 };
+                    }
+                    return { width: 320, height: 180, quality: 10, interval: 1000 };
+                },
+
+                restartPreviewLoop() {
+                    if (this.previewInterval) {
+                        clearInterval(this.previewInterval);
+                        this.previewInterval = null;
+                    }
+                    if (!this.connected) return;
+                    const { interval } = this.getPreviewSettings();
+                    this.updateLoop();
+                    this.previewInterval = setInterval(() => this.updateLoop(), interval);
+                },
+                
+                async updateLoop() {
+                    if (!this.connected) return;
+                    if (this.previewBusy) return;
+                    this.previewBusy = true;
+                    
+                    try {
+                        if (this.currentScene) {
+                            const { width, height, quality } = this.getPreviewSettings();
+                            
+                            const { imageData } = await this.obs.call('GetSourceScreenshot', {
+                                sourceName: this.currentScene,
+                                imageFormat: 'jpeg',
+                                imageWidth: width,
+                                imageHeight: height,
+                                imageCompressionQuality: quality
+                            });
+                            this.previewImage = imageData;
+                        }
+                    } catch(e) {}
+                    
+                    try {
+                        if (this.isStreaming) {
+                            const { outputTimecode } = await this.obs.call('GetStreamStatus');
+                            if (outputTimecode) this.streamTimecode = outputTimecode.split('.')[0];
+                        }
+                        if (this.isRecording) {
+                            const { outputTimecode } = await this.obs.call('GetRecordStatus');
+                            if (outputTimecode) this.recordTimecode = outputTimecode.split('.')[0];
+                        }
+                    } catch(e) {}
+                    finally {
+                        this.previewBusy = false;
+                    }
+                },
+                
+                async fetchAudioStatus() {
+                    if (!this.connected || !this.audioSourceName) return;
+                    try {
+                        const { inputMuted } = await this.obs.call('GetInputMute', { inputName: this.audioSourceName });
+                        this.isMuted = inputMuted;
+                        const { inputVolumeMul } = await this.obs.call('GetInputVolume', { inputName: this.audioSourceName });
+                        this.audioVolume = inputVolumeMul;
+                    } catch (e) {}
+                },
+                
+                async updateVolume() {
+                    if (!this.connected) return;
+                    try {
+                        await this.obs.call('SetInputVolume', {
+                            inputName: this.audioSourceName,
+                            inputVolumeMul: parseFloat(this.audioVolume)
+                        });
+                    } catch(e) {}
+                },
+                
+                async toggleStream() {
+                    if (!this.connected) return;
+                    if (this.isStreaming) {
+                        if (confirm("ATENÇÃO: Você tem certeza que deseja ENCERRAR a TRANSMISSÃO?")) {
+                            await this.obs.call('StopStream');
+                        }
+                    } else {
+                        await this.obs.call('StartStream');
+                    }
+                },
+                
+                async toggleRecord() {
+                    if (!this.connected) return;
+                    if (this.isRecording) {
+                        if (confirm("ATENÇÃO: Você tem certeza que deseja PARAR a GRAVAÇÃO?")) {
+                            await this.obs.call('StopRecord');
+                        }
+                    } else {
+                        await this.obs.call('StartRecord');
+                    }
+                },
+                
+                loadJSON(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            if (Array.isArray(data)) {
+                                this.speakers = data;
+                                this.showToast('Lista de palestrantes carregada', 'success');
+                            } else if (data && data.speakers && Array.isArray(data.speakers)) {
+                                this.speakers = data.speakers;
+                                if (data.settings) {
+                                    this.projectSettings = data.settings;
+                                }
+                                this.showToast('Projeto de LT importado', 'success');
+                            } else {
+                                this.showToast('Formato inválido de arquivo', 'error');
+                                return;
+                            }
+                            // Persiste a lista importada no localStorage
+                            localStorage.setItem('obs_speakers', JSON.stringify(this.speakers));
+                        } catch (err) {
+                            this.showToast('Erro ao ler o arquivo JSON', 'error');
+                        }
+                    };
+                    reader.readAsText(file);
+                },
+
+                loadDemoSpeakers() {
+                    this.speakers = [
+                        { id: 1, name: "Dr. Carlos Souza", role: "Diretor de Tecnologia" },
+                        { id: 2, name: "Ana Beatriz Martins", role: "Especialista em Streaming" },
+                        { id: 3, name: "Prof. Marcos Lima", role: "Palestrante Principal" },
+                        { id: 4, name: "Juliana Mendes", role: "Gestora de Produto" }
+                    ];
+                    this.showToast("Palestrantes de demonstração carregados", "success");
+                },
+                
+                applySelectedSpeaker() {
+                    const index = parseInt(this.selectedSpeakerIndex);
+                    if (index >= 0 && this.speakers[index]) {
+                        this.name = this.speakers[index].name;
+                        this.role = this.speakers[index].role;
+                    } else {
+                        this.name = '';
+                        this.role = '';
+                    }
+                },
+                
+                async sendGC(action) {
+                    if (!this.connected) return;
+
+                    const normalizedAction = String(action || '').toLowerCase();
+                    const channel = String(this.liveChannel || 'principal').trim().slice(0, 40) || 'principal';
+                    const selectedSpeaker = this.speakers[Number(this.selectedSpeakerIndex)] || {};
+                    const state = normalizedAction === 'show'
+                        ? {
+                            ...(this.projectSettings || {}),
+                            name: String(this.name || '').slice(0, 120),
+                            role: String(this.role || '').slice(0, 240),
+                            ...(selectedSpeaker.profile ? { profile: selectedSpeaker.profile } : {})
+                        }
+                        : null;
+                    
+                    try {
+                        await this.obs.call('CallVendorRequest', {
+                            vendorName: 'obs-browser',
+                            requestType: 'emit_event',
+                            requestData: {
+                                event_name: 'lowerThirdControl',
+                                event_data: {
+                                    origin: 'painel-controle',
+                                    action: normalizedAction,
+                                    channel,
+                                    state
+                                }
+                            }
+                        });
+                        this.gcVisible = normalizedAction === 'show';
+                        this.liveSpeakerIndex = normalizedAction === 'show' ? this.selectedSpeakerIndex : null;
+                        this.showToast(normalizedAction === 'show' ? `LT enviado no canal ${channel}` : `LT ocultado no canal ${channel}`, 'success');
+                    } catch (error) {
+                        this.showToast(error?.message || 'Erro ao enviar comando LT', 'error');
+                    }
+                },
+                
+                async toggleMute() {
+                    if (!this.connected) return;
+                    try {
+                        await this.obs.call('ToggleInputMute', { inputName: this.audioSourceName });
+                        this.isMuted = !this.isMuted;
+                    } catch (error) {
+                        this.showToast(`Fonte '${this.audioSourceName}' não encontrada`, 'error');
+                    }
+                },
+                
+                showToast(message, type) {
+                    const id = Date.now();
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 3000);
+                }
+            }));
+        });
+    </script>
+</body>
+</html>
