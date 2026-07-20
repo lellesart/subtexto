@@ -31,4 +31,4 @@ Versão inicial para distribuição pública.
 - Integração com OBS WebSocket.
 - Exportação de PNG e WebM.
 - Fallback de Chroma Key para gravações sem transparência.
-- A identidade institucional e os assets BNDES foram removidos.
+- A identidade institucional e os assets específicos da versão interna foram removidos.
