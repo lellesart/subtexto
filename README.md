@@ -29,6 +29,7 @@ overlay.html?channel=principal&res=1920x1080
 
 O canal usado no painel deve ser o mesmo da URL do overlay. Se a URL não tiver `channel`, use `principal`.
 
+
 ## Templates e personalização
 
 A versão pública inclui templates genéricos de lower third e modelos personalizados com upload de PNG/SVG.
