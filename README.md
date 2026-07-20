@@ -29,24 +29,6 @@ overlay.html?channel=principal&res=1920x1080
 
 O canal usado no painel deve ser o mesmo da URL do overlay. Se a URL não tiver `channel`, use `principal`.
 
-## Painel obs.desk
-
-O arquivo `painel_controle.html` oferece uma operação mais direta para transmissão:
-
-- conexão com OBS WebSocket;
-- monitor do programa atual em dois modos de qualidade;
-- controle de cenas;
-- lista de fontes da cena atual;
-- controle básico de transmissão e gravação;
-- controle de áudio por fonte;
-- importação de lista/projeto de participantes;
-- envio e ocultação de lower thirds pelo mesmo overlay fixo do OBS.
-
-Modos do monitor:
-
-- `Leve`: menor resolução e atualização mais espaçada, recomendado para computadores antigos.
-- `Nítido`: imagem melhor, ainda limitada para evitar sobrecarga.
-
 ## Templates e personalização
 
 A versão pública inclui templates genéricos de lower third e modelos personalizados com upload de PNG/SVG.
